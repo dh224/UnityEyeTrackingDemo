@@ -8,8 +8,10 @@ using UnityEngine.UI;
 using Vector3 = UnityEngine.Vector3;
 using Vector4 = UnityEngine.Vector4;
 using System.IO;
+using OfficeOpenXml;
 using System.Linq;
 using System.Text;
+using Random = System.Random;
 
 public class GazeRays : MonoBehaviour
 {
@@ -23,6 +25,7 @@ public class GazeRays : MonoBehaviour
     public Text focusPointDistance;
     public GameObject cube;
     public GameObject depthClus;
+    
 
     // Freeze the gaze visuals so we can inspect them more easily.
     // Press F to toggle.
@@ -36,11 +39,13 @@ public class GazeRays : MonoBehaviour
     private float focusDis = -1.0f;
     private float actualDis = -1.0f;
     private bool depthClu = true;
+    private float time_to_cold = 0.1f;
+    private List<Vector3> eye_mid_point_list = new List<Vector3>();
 
     void InitLineRenderer(LineRenderer lr)
     {
         lr.startWidth = 0.001f;
-        lr.endWidth = 0.0001f;
+        lr.endWidth = 0.001f;
         lr.material = new Material(Shader.Find("Sprites/Default"));
     }
 
@@ -62,21 +67,23 @@ public class GazeRays : MonoBehaviour
         {
             LineRenderer lr = LeftVisual.GetComponent<LineRenderer>();
             InitLineRenderer(lr);
-            lr.startColor = Color.blue;
-            lr.endColor = Color.blue;
+            lr.startColor = new Color(1, 1, 1, 0);
+            lr.endColor = new Color(1, 1, 1, 0);
         }
 
         {
             LineRenderer lr = RightVisual.GetComponent<LineRenderer>();
             InitLineRenderer(lr);
-            lr.startColor = Color.red;
-            lr.endColor = Color.red;
+            lr.startColor = new Color(1, 1, 1, 0);
+            lr.endColor = new Color(1, 1, 1, 0);
         }
         {
             LineRenderer mr = DepthVisual.GetComponent<LineRenderer>();
             InitLineRenderer(mr);
-            mr.startColor = Color.yellow;
-            mr.endColor = Color.yellow;
+            mr.startColor = new Color(1, 1, 1, 0);
+            mr.endColor = new Color(1, 1, 1, 0);
+            // mr.startColor = Color.yellow;
+            // mr.endColor = Color.yellow;
         } 
     }
 
@@ -174,22 +181,38 @@ public class GazeRays : MonoBehaviour
         float twoPointDis = (pointa - pointb).magnitude;
         float cubeDis = (cube.transform.position - (gr.leftOrigin + gr.rightOrigin) / 2).magnitude;
         float dis = (midPoint - (gr.leftOrigin + gr.rightOrigin) / 2).magnitude;
-        if (dis >= 1 && dis <= 12 && twoPointDis<=0.2f)
+        time_to_cold += Time.deltaTime;
+        if (time_to_cold >= 0.1f)
         {
-            listFocusFloats.Add(dis);
-        }
+            eye_mid_point_list.Add(midPoint);
+            if (is_gazed(midPoint))
+            {
+                if (dis >= 1 && dis <= 12 && twoPointDis<=0.2f)
+                {
+                    listFocusFloats.Add(dis);
+                }
 
-        if (cubeDis >= 1 && cubeDis <= 100 && twoPointDis<=0.2f)
-        {
-            listCubeDis.Add(cubeDis);
+                if (cubeDis >= 1 && cubeDis <= 100 && twoPointDis<=0.2f)
+                {
+                    listCubeDis.Add(cubeDis - 0.5f);
+                }
+                focusPointDistance.text = dis.ToString() + "真实距离：" + (cube.transform.position - gr.leftOrigin).magnitude.ToString();
+                mlr.SetPosition(0,pointa);
+                mlr.SetPosition(1,pointb);
+            }
+            time_to_cold = 0f;
         }
-        focusPointDistance.text = dis.ToString() + "真实距离：" + (cube.transform.position - gr.leftOrigin).magnitude.ToString();
-        
-        mlr.SetPosition(0,pointa);
-        mlr.SetPosition(1,pointb);
-
     }
-    
+
+    private bool is_gazed(Vector3 mid)
+    {
+        if (eye_mid_point_list.Count < 5) return true;
+        for (int i = eye_mid_point_list.Count - 1; i >= eye_mid_point_list.Count - 6; i--)
+        {
+            float d = Vector3.Distance(mid, eye_mid_point_list[i]);
+        }
+        return true;
+    }
     public void lineToLineSegment(Vector3 linea,Vector3 pointInA,Vector3 lineb,Vector3 pointInB,out Vector3 pointA,out Vector3 pointB){
         Vector4 pa = new Vector4(0f, 0f, 0f,0f);
         Vector4 pb = new Vector4(0f, 0f, 0f,0f);
@@ -256,7 +279,7 @@ public class GazeRays : MonoBehaviour
     /// </summary>
     /// <param name="csvPath">要写入的字符串表示的CSV文件</param>
     /// <param name="LineDataList">要写入CSV文件的数据，以string[]类型List表示的行集数据</param>
-    public  void OpCsv(string type)
+    public void OpCsv(string type)
     {
         String a = "";
         if (type.Equals("focus"))
@@ -282,6 +305,26 @@ public class GazeRays : MonoBehaviour
         }
         Debug.Log(a);
     }
+
+    private void saveExcel(string path, string filename)
+    {
+        string filepath = path + filename + ".xlsx";
+        // 取得文件的信息
+        Debug.Log(filepath);
+        FileInfo fileInfo = new FileInfo(filepath);
+
+        using (ExcelPackage excelPackage = new ExcelPackage(fileInfo))
+        {
+           ExcelWorksheet worksheet = excelPackage.Workbook.Worksheets.Add("Sheet1");
+           for (int i = 0; i < listCubeDis.Count && i < listFocusFloats.Count; i++)
+           {
+               Debug.Log(listCubeDis[i]);
+               worksheet.Cells[i + 1, 1].Value = listCubeDis[i];
+               worksheet.Cells[i + 1, 2].Value = listFocusFloats[i];
+           }
+           excelPackage.Save();
+        }
+    }
     private void SaveCSV(string path, string fileName)
     {
         string Folder = Environment.CurrentDirectory + path; // 文件夹路径
@@ -297,6 +340,15 @@ public class GazeRays : MonoBehaviour
         }
     }
 
+    private void readExcel()
+    {
+        string filePath = "C:/Users/asd/SteamVRHello/Assets/Result/test.xlsx" ;
+        using (ExcelPackage excelPackage = new ExcelPackage(new FileInfo(filePath)))
+        {
+            ExcelWorksheet sheet = excelPackage.Workbook.Worksheets[1];
+            Debug.Log(sheet.Cells[1, 1].Value.ToString());
+        }
+    }
     void Update()
     {
         if (Input.GetKeyDown(KeyCode.K))
@@ -310,6 +362,13 @@ public class GazeRays : MonoBehaviour
             // Freeze visuals
             isFrozen = !isFrozen;
         }
+        if(Input.GetKeyDown(KeyCode.E))
+        {
+            Vector3 pos = cube.transform.position;
+            Debug.Log(cube.transform.position);
+            pos.z = pos.z + 2f;
+            cube.transform.position = pos;
+        }
 
         if (Input.GetKeyDown(KeyCode.S))
         {
@@ -317,6 +376,7 @@ public class GazeRays : MonoBehaviour
             OpCsv("focus");
             Debug.Log("实际距离：");
             OpCsv("actual");
+            saveExcel(Environment.CurrentDirectory + "/Result/", "result");
         }
 
         if (Input.GetKeyDown(KeyCode.D))
@@ -329,6 +389,7 @@ public class GazeRays : MonoBehaviour
         {
             listCubeDis.Clear();
             listFocusFloats.Clear();
+            eye_mid_point_list.Clear();
         }
         if (Input.GetKeyDown(KeyCode.Space))
         {
